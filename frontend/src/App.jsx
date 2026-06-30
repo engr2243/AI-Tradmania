@@ -112,6 +112,7 @@ export default function App() {
             running={running}
             mode={mode}
             symbol={symbol}
+            aiProvider={state?.ai_provider}
             riskHalted={state?.risk_halted}
             haltReason={state?.halt_reason}
             onControl={apiControl}

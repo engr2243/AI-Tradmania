@@ -15,7 +15,7 @@ from data.market_feed import MarketFeed
 from data.indicators import compute_indicators, compute_multi_timeframe, build_signal_scorecard
 from data.memory_graph import MemoryGraph, _rsi_band
 from ai.prompt_builder import build_trading_prompt
-from ai.claude_engine import analyze_market
+from ai.providers import get_provider
 from trading.portfolio import Portfolio
 from trading.risk import RiskManager
 from trading.live_executor import BinanceLiveExecutor
@@ -34,6 +34,7 @@ class TradingEngine:
 
         self.live_executor: Optional[BinanceLiveExecutor] = None
         self.memory_graph = MemoryGraph()
+        self.ai_provider = get_provider()
         self.running = False
         self.last_decision: dict = {}
         self.last_market_data: dict = {}
@@ -170,9 +171,9 @@ class TradingEngine:
                 memory_context=memory_context,
             )
 
-            # 7. Call Claude (thread pool — non-blocking)
+            # 7. Call AI provider (thread pool — non-blocking)
             loop = asyncio.get_event_loop()
-            decision = await loop.run_in_executor(None, analyze_market, prompt)
+            decision = await loop.run_in_executor(None, self.ai_provider.analyze, prompt)
             self.last_decision = decision
 
             # 8. Save decision to Neo4j memory graph
@@ -337,6 +338,8 @@ class TradingEngine:
             "risk_halted": self.risk.halt,
             "halt_reason": self.risk.halt_reason,
             "memory_summary": self.memory_graph.get_memory_summary(),
+            "ai_provider": self.ai_provider.name,
+            "ai_model": self.ai_provider.model,
             "errors": self.errors[-5:],
         }
 
@@ -347,3 +350,11 @@ class TradingEngine:
     def set_symbol(self, symbol: str):
         self.symbol = symbol
         self.feed.symbol = symbol
+
+    def set_provider(self, provider_name: str):
+        try:
+            self.ai_provider = get_provider(provider_name)
+            logger.info(f"AI provider switched to: {self.ai_provider.name} ({self.ai_provider.model})")
+        except ValueError as e:
+            logger.error(f"Provider switch failed: {e}")
+            raise

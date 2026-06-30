@@ -2,19 +2,45 @@ import { useState } from 'react';
 
 const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'];
 
-export default function BotControls({ running, mode, symbol, riskHalted, haltReason, onControl }) {
+const PROVIDERS = [
+  { value: 'claude',   label: 'Claude',   sub: 'claude-sonnet-4-6',  color: 'text-purple-400' },
+  { value: 'openai',   label: 'OpenAI',   sub: 'gpt-4o',             color: 'text-green-400'  },
+  { value: 'moonshot', label: 'Moonshot', sub: 'moonshot-v1-8k',     color: 'text-blue-400'   },
+  { value: 'deepseek', label: 'DeepSeek', sub: 'deepseek-chat',      color: 'text-cyan-400'   },
+];
+
+export default function BotControls({ running, mode, symbol, aiProvider, riskHalted, haltReason, onControl }) {
   const [selectedSymbol, setSelectedSymbol] = useState(symbol || 'BTC/USDT');
   const [selectedMode, setSelectedMode] = useState(mode || 'paper');
+  const [selectedProvider, setSelectedProvider] = useState(aiProvider || 'claude');
   const [loading, setLoading] = useState(false);
+  const [switchingProvider, setSwitchingProvider] = useState(false);
+  const [providerError, setProviderError] = useState('');
 
-  const send = async (action) => {
+  const send = async (action, extra = {}) => {
     setLoading(true);
     try {
-      await onControl({ action, symbol: selectedSymbol, mode: selectedMode });
+      await onControl({ action, symbol: selectedSymbol, mode: selectedMode, ...extra });
     } finally {
       setLoading(false);
     }
   };
+
+  const handleProviderChange = async (value) => {
+    setSelectedProvider(value);
+    setProviderError('');
+    setSwitchingProvider(true);
+    try {
+      const res = await onControl({ action: 'set_provider', provider: value });
+      if (res?.error) setProviderError(res.error);
+    } catch (e) {
+      setProviderError('Failed to switch provider — check API key in .env');
+    } finally {
+      setSwitchingProvider(false);
+    }
+  };
+
+  const activeProviderInfo = PROVIDERS.find(p => p.value === (aiProvider || selectedProvider));
 
   return (
     <div className="bg-slate-900 rounded-xl border border-slate-800 p-4">
@@ -40,6 +66,42 @@ export default function BotControls({ running, mode, symbol, riskHalted, haltRea
           </button>
         </div>
       )}
+
+      {/* AI Provider selector */}
+      <div className="mb-3">
+        <label className="text-slate-500 text-xs block mb-1">AI Provider</label>
+        <div className="grid grid-cols-2 gap-1.5">
+          {PROVIDERS.map(p => (
+            <button
+              key={p.value}
+              onClick={() => handleProviderChange(p.value)}
+              disabled={switchingProvider}
+              className={`flex flex-col items-start px-2.5 py-1.5 rounded-lg border text-xs transition-all ${
+                (aiProvider || selectedProvider) === p.value
+                  ? 'border-blue-500/50 bg-blue-500/10'
+                  : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+              } disabled:opacity-50`}
+            >
+              <span className={`font-semibold ${(aiProvider || selectedProvider) === p.value ? p.color : 'text-slate-400'}`}>
+                {p.label}
+              </span>
+              <span className="text-slate-600 font-mono" style={{ fontSize: '10px' }}>{p.sub}</span>
+            </button>
+          ))}
+        </div>
+        {switchingProvider && (
+          <p className="text-xs text-slate-500 mt-1">Switching provider...</p>
+        )}
+        {providerError && (
+          <p className="text-xs text-red-400 mt-1">{providerError}</p>
+        )}
+        {activeProviderInfo && !providerError && (
+          <p className="text-xs text-slate-600 mt-1">
+            Using <span className={activeProviderInfo.color}>{activeProviderInfo.label}</span>
+            {' · '}{activeProviderInfo.sub}
+          </p>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div>
