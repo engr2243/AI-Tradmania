@@ -122,5 +122,23 @@ class Portfolio:
         logger.info(f"SELL {qty:.6f} {self.base_currency} @ ${price:,.2f} | P&L: ${pnl:+.2f}")
         return trade
 
+    def sync_from_exchange(self, balances: dict, current_price: float):
+        """Overwrite portfolio state with real Binance balances after a live trade."""
+        self.balance_usdt = balances["usdt_free"]
+        self.holdings = balances["base_free"]
+        if self.holdings > 0 and self.avg_buy_price is None:
+            # Estimate avg buy price from current price if unknown
+            self.avg_buy_price = current_price
+        logger.info(
+            f"Portfolio synced from Binance | USDT: ${self.balance_usdt:.2f} | Holdings: {self.holdings:.8f}"
+        )
+
+    def record_live_trade(self, order: dict, pnl: float = 0) -> dict:
+        """Record a live order returned by BinanceLiveExecutor into trade history."""
+        trade = {**order, "id": len(self.trade_history) + 1, "pnl": round(pnl, 4)}
+        self.trade_history.append(trade)
+        self.realized_pnl += pnl
+        return trade
+
     def get_recent_trades(self, n: int = 10) -> list:
         return self.trade_history[-n:]
