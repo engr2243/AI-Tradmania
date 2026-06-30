@@ -22,6 +22,14 @@ class Portfolio:
         self.day_start_value = initial_balance
         self.day_start_time = time.time()
 
+        # Decision memory: stores each Claude decision + eventual outcome
+        self.decision_memory: list = []
+
+        # Performance tracking per signal
+        self.signal_stats: dict = {}
+
+    # ── State ────────────────────────────────────────────────────────────────
+
     def get_state(self, current_price: Optional[float] = None) -> dict:
         holdings_value = (self.holdings * current_price) if current_price and self.holdings else 0
         total_value = self.balance_usdt + holdings_value
@@ -30,7 +38,6 @@ class Portfolio:
         if self.holdings > 0 and self.avg_buy_price and current_price:
             unrealized_pnl = (current_price - self.avg_buy_price) * self.holdings
 
-        # Reset daily stats if new day
         if time.time() - self.day_start_time > 86400:
             self.day_start_value = total_value
             self.day_start_time = time.time()
@@ -38,6 +45,10 @@ class Portfolio:
         daily_drawdown_pct = 0.0
         if self.day_start_value > 0:
             daily_drawdown_pct = max(0, (self.day_start_value - total_value) / self.day_start_value * 100)
+
+        wins = [t for t in self.trade_history if t.get("pnl", 0) > 0]
+        losses = [t for t in self.trade_history if t.get("pnl", 0) < 0]
+        win_rate = len(wins) / len(self.trade_history) * 100 if self.trade_history else 0
 
         return {
             "balance_usdt": round(self.balance_usdt, 4),
@@ -51,7 +62,12 @@ class Portfolio:
             "total_pnl_pct": round((unrealized_pnl + self.realized_pnl) / self.initial_balance * 100, 2),
             "daily_drawdown_pct": round(daily_drawdown_pct, 2),
             "trade_count": len(self.trade_history),
+            "win_rate": round(win_rate, 1),
+            "wins": len(wins),
+            "losses": len(losses),
         }
+
+    # ── Paper trade execution ─────────────────────────────────────────────────
 
     def apply_buy(self, price: float, amount_usdt: float, fee_pct: float = 0.001) -> Optional[dict]:
         if amount_usdt > self.balance_usdt:
@@ -63,7 +79,6 @@ class Portfolio:
         net_usdt = amount_usdt - fee
         qty = net_usdt / price
 
-        # Update average buy price
         if self.holdings == 0:
             self.avg_buy_price = price
         else:
@@ -122,23 +137,69 @@ class Portfolio:
         logger.info(f"SELL {qty:.6f} {self.base_currency} @ ${price:,.2f} | P&L: ${pnl:+.2f}")
         return trade
 
+    # ── Live trade support ───────────────────────────────────────────────────
+
     def sync_from_exchange(self, balances: dict, current_price: float):
-        """Overwrite portfolio state with real Binance balances after a live trade."""
         self.balance_usdt = balances["usdt_free"]
         self.holdings = balances["base_free"]
         if self.holdings > 0 and self.avg_buy_price is None:
-            # Estimate avg buy price from current price if unknown
             self.avg_buy_price = current_price
-        logger.info(
-            f"Portfolio synced from Binance | USDT: ${self.balance_usdt:.2f} | Holdings: {self.holdings:.8f}"
-        )
+        logger.info(f"Portfolio synced | USDT: ${self.balance_usdt:.2f} | Holdings: {self.holdings:.8f}")
 
     def record_live_trade(self, order: dict, pnl: float = 0) -> dict:
-        """Record a live order returned by BinanceLiveExecutor into trade history."""
         trade = {**order, "id": len(self.trade_history) + 1, "pnl": round(pnl, 4)}
         self.trade_history.append(trade)
         self.realized_pnl += pnl
         return trade
 
-    def get_recent_trades(self, n: int = 10) -> list:
+    # ── Decision memory ──────────────────────────────────────────────────────
+
+    def record_decision(self, decision: dict, current_price: float):
+        """Record every Claude decision for memory injection next cycle."""
+        entry = {
+            "action": decision.get("action"),
+            "confidence": decision.get("confidence", 0),
+            "key_signals": decision.get("key_signals", []),
+            "rr_ratio": decision.get("rr_ratio"),
+            "price_at": round(current_price, 2),
+            "timestamp": int(time.time() * 1000),
+            "outcome": "pending",
+            "pnl": None,
+        }
+        self.decision_memory.append(entry)
+        # Keep last 10
+        self.decision_memory = self.decision_memory[-10:]
+
+    def resolve_last_decision(self, pnl: float):
+        """After a trade closes, mark the last BUY/SELL decision with its outcome."""
+        for d in reversed(self.decision_memory):
+            if d["outcome"] == "pending" and d["action"] in ("BUY", "SELL"):
+                d["pnl"] = round(pnl, 4)
+                d["outcome"] = "profit" if pnl > 0 else "loss"
+                # Update signal stats
+                for sig in d.get("key_signals", []):
+                    if sig not in self.signal_stats:
+                        self.signal_stats[sig] = {"wins": 0, "losses": 0}
+                    if pnl > 0:
+                        self.signal_stats[sig]["wins"] += 1
+                    else:
+                        self.signal_stats[sig]["losses"] += 1
+                break
+
+    def get_signal_performance(self) -> list:
+        """Return signal win rates for dashboard display."""
+        result = []
+        for sig, stats in self.signal_stats.items():
+            total = stats["wins"] + stats["losses"]
+            if total > 0:
+                result.append({
+                    "signal": sig,
+                    "wins": stats["wins"],
+                    "losses": stats["losses"],
+                    "win_rate": round(stats["wins"] / total * 100, 1),
+                    "total": total,
+                })
+        return sorted(result, key=lambda x: x["win_rate"], reverse=True)
+
+    def get_recent_trades(self, n: int = 20) -> list:
         return self.trade_history[-n:]

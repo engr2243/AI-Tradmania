@@ -14,7 +14,6 @@ client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 def parse_decision(raw: str) -> Optional[dict]:
     try:
-        # Extract JSON from response
         match = re.search(r'\{.*\}', raw, re.DOTALL)
         if not match:
             return None
@@ -31,6 +30,8 @@ def parse_decision(raw: str) -> Optional[dict]:
             "risk_level": data.get("risk_level", "MEDIUM"),
             "target_price": data.get("target_price"),
             "stop_loss": data.get("stop_loss"),
+            "rr_ratio": data.get("rr_ratio"),
+            "reasoning": data.get("reasoning", {}),
         }
     except Exception as e:
         logger.warning(f"Decision parse error: {e} | raw: {raw[:200]}")
@@ -42,7 +43,7 @@ def analyze_market(prompt: str) -> dict:
     try:
         message = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=512,
+            max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = message.content[0].text
@@ -51,43 +52,42 @@ def analyze_market(prompt: str) -> dict:
 
         if decision is None:
             logger.warning(f"Could not parse Claude response: {raw[:300]}")
-            return {
-                "action": "HOLD",
-                "confidence": 0.0,
-                "amount_pct": 0,
-                "reason": "Failed to parse AI response. Defaulting to HOLD.",
-                "key_signals": [],
-                "risk_level": "HIGH",
-                "raw": raw,
-                "latency_s": elapsed,
-                "error": True,
-            }
+            return _hold_response("Failed to parse AI response. Defaulting to HOLD.", elapsed)
 
         decision["raw"] = raw
         decision["latency_s"] = elapsed
         decision["error"] = False
+        logger.info(
+            f"Claude decision: {decision['action']} | "
+            f"conf: {decision['confidence']:.0%} | "
+            f"R:R: {decision.get('rr_ratio')} | "
+            f"latency: {elapsed}s"
+        )
         return decision
 
     except anthropic.AuthenticationError:
-        return {
-            "action": "HOLD",
-            "confidence": 0.0,
-            "amount_pct": 0,
-            "reason": "Invalid or missing ANTHROPIC_API_KEY. Configure in .env to enable AI decisions.",
-            "key_signals": ["api_key_missing"],
-            "risk_level": "HIGH",
-            "latency_s": round(time.time() - start, 2),
-            "error": True,
-        }
+        return _hold_response(
+            "Invalid or missing ANTHROPIC_API_KEY. Add it to .env to enable AI decisions.",
+            round(time.time() - start, 2),
+            key_signals=["api_key_missing"],
+        )
     except Exception as e:
         logger.error(f"Claude API error: {e}")
-        return {
-            "action": "HOLD",
-            "confidence": 0.0,
-            "amount_pct": 0,
-            "reason": f"AI engine error: {str(e)[:100]}. Defaulting to HOLD.",
-            "key_signals": [],
-            "risk_level": "HIGH",
-            "latency_s": round(time.time() - start, 2),
-            "error": True,
-        }
+        return _hold_response(f"AI engine error: {str(e)[:100]}", round(time.time() - start, 2))
+
+
+def _hold_response(reason: str, latency: float, key_signals: list = None) -> dict:
+    return {
+        "action": "HOLD",
+        "confidence": 0.0,
+        "amount_pct": 0,
+        "reason": reason,
+        "key_signals": key_signals or [],
+        "risk_level": "HIGH",
+        "target_price": None,
+        "stop_loss": None,
+        "rr_ratio": None,
+        "reasoning": {},
+        "latency_s": latency,
+        "error": True,
+    }

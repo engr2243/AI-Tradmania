@@ -7,6 +7,8 @@ import MarketComparison from './components/MarketComparison';
 import TradeHistory from './components/TradeHistory';
 import Indicators from './components/Indicators';
 import BotControls from './components/BotControls';
+import Scorecard from './components/Scorecard';
+import SignalPerformance from './components/SignalPerformance';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const WS_URL = API_BASE.replace('http', 'ws') + '/ws';
@@ -28,6 +30,10 @@ export default function App() {
   const running = state?.running ?? false;
   const mode = state?.mode || 'paper';
 
+  // Bias color from scorecard
+  const bias = state?.scorecard?.overall_bias;
+  const biasColor = bias === 'bullish' ? 'text-green-400' : bias === 'bearish' ? 'text-red-400' : 'text-slate-400';
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200">
       {/* Header */}
@@ -43,6 +49,17 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-4">
+          {/* Signal bias pill */}
+          {bias && (
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${
+              bias === 'bullish' ? 'border-green-500/30 bg-green-500/10 text-green-400' :
+              bias === 'bearish' ? 'border-red-500/30 bg-red-500/10 text-red-400' :
+              'border-slate-700 bg-slate-800 text-slate-400'
+            }`}>
+              {bias.toUpperCase()}
+            </span>
+          )}
+
           {price && (
             <div className="text-right">
               <p className="text-slate-200 font-mono font-bold">{fmt.price(price)}</p>
@@ -56,63 +73,66 @@ export default function App() {
           </div>
 
           {lastUpdate && (
-            <span className="text-xs text-slate-600 hidden sm:block">
-              {fmt.ago(lastUpdate)}
-            </span>
+            <span className="text-xs text-slate-600 hidden sm:block">{fmt.ago(lastUpdate)}</span>
           )}
         </div>
       </header>
 
       <main className="max-w-screen-2xl mx-auto px-3 py-4 space-y-4">
-        {/* Top: Portfolio */}
-        <Portfolio
-          portfolio={state?.portfolio}
-          symbol={symbol}
-          mode={mode}
-        />
 
-        {/* Middle: Chart + AI Decisions */}
+        {/* Row 1: Portfolio */}
+        <Portfolio portfolio={state?.portfolio} symbol={symbol} mode={mode} />
+
+        {/* Row 2: Chart + AI Decisions */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2">
-            <PriceChart
-              ohlcv={state?.ohlcv}
-              trades={state?.recent_trades}
-              symbol={symbol}
-            />
+            <PriceChart ohlcv={state?.ohlcv} trades={state?.recent_trades} symbol={symbol} />
           </div>
           <div className="min-h-[320px]">
             <AIDecisions
               decision={state?.decision}
               lastUpdate={lastUpdate}
               cycle={state?.cycle}
+              decisionMemory={state?.decision_memory || []}
             />
           </div>
         </div>
 
-        {/* Middle: Indicators + Controls + Market Comparison */}
+        {/* Row 3: Scorecard + Indicators + Controls */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Scorecard
+            scorecard={state?.scorecard}
+            mtf={state?.mtf}
+            fearGreed={state?.fear_greed}
+            fundingRate={state?.funding_rate}
+          />
           <Indicators indicators={state?.indicators} />
-          <div>
-            <BotControls
-              running={running}
-              mode={mode}
-              symbol={symbol}
-              riskHalted={state?.risk_halted}
-              haltReason={state?.halt_reason}
-              onControl={apiControl}
-            />
-          </div>
+          <BotControls
+            running={running}
+            mode={mode}
+            symbol={symbol}
+            riskHalted={state?.risk_halted}
+            haltReason={state?.halt_reason}
+            onControl={apiControl}
+          />
+        </div>
+
+        {/* Row 4: Market Comparison + Signal Performance */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <MarketComparison
             tickers={state?.tickers || {}}
             orderBooks={state?.order_books || {}}
             symbol={symbol}
           />
+          <SignalPerformance
+            signals={state?.signal_performance || []}
+            riskStatus={state?.risk}
+          />
         </div>
 
-        {/* Bottom: Trade History */}
+        {/* Row 5: Trade History */}
         <TradeHistory trades={state?.recent_trades || []} />
 
-        {/* Footer */}
         <footer className="text-center text-xs text-slate-700 pb-4">
           AI-Tradmania • Paper trading by default • Not financial advice
         </footer>
