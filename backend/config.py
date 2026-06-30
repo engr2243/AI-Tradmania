@@ -3,8 +3,24 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Claude API
+# AI provider selection: claude | openai | moonshot | deepseek
+AI_PROVIDER = os.getenv("AI_PROVIDER", "claude")
+
+# Claude (Anthropic)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+
+# OpenAI
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+
+# Moonshot / Kimi
+MOONSHOT_API_KEY = os.getenv("MOONSHOT_API_KEY", "")
+MOONSHOT_MODEL = os.getenv("MOONSHOT_MODEL", "moonshot-v1-8k")
+
+# DeepSeek
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 
 # Exchange API keys (optional for paper trading)
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")

@@ -16,6 +16,7 @@ class BotControl(BaseModel):
     action: str
     symbol: Optional[str] = None
     mode: Optional[str] = None
+    provider: Optional[str] = None
 
 
 class TradeOverride(BaseModel):
@@ -33,6 +34,8 @@ async def get_status():
         "mode": engine.mode,
         "symbol": engine.symbol,
         "cycle": engine.cycle_count,
+        "ai_provider": engine.ai_provider.name,
+        "ai_model": engine.ai_provider.model,
         "portfolio": state["portfolio"],
         "risk": state["risk"],
         "risk_halted": state["risk_halted"],
@@ -100,6 +103,18 @@ async def control_bot(body: BotControl):
     elif body.action == "resume":
         engine.risk.resume()
         return {"message": "Risk halt cleared, bot resumed"}
+    elif body.action == "set_provider":
+        if not body.provider:
+            raise HTTPException(status_code=400, detail="provider field required")
+        try:
+            engine.set_provider(body.provider)
+            return {
+                "message": f"AI provider switched to {engine.ai_provider.name}",
+                "provider": engine.ai_provider.name,
+                "model": engine.ai_provider.model,
+            }
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     raise HTTPException(status_code=400, detail=f"Unknown action: {body.action}")
 

@@ -110,11 +110,13 @@ export default function AIDecisions({ decision, lastUpdate, cycle, decisionMemor
             )}
             <ReasoningSteps reasoning={current.reasoning} />
             {current.latency_s && (
-              <p className="text-xs text-slate-600 mt-1">Claude latency: {current.latency_s}s</p>
+              <p className="text-xs text-slate-600 mt-1">
+                {current.provider ? `${current.provider} · ` : ''}{current.latency_s}s
+              </p>
             )}
             {current.error && (
               <div className="mt-2 text-xs text-red-400 bg-red-500/10 rounded px-2 py-1">
-                API Error — Check ANTHROPIC_API_KEY
+                AI provider error — check API key in .env ({current.provider || 'unknown'})
               </div>
             )}
           </>
