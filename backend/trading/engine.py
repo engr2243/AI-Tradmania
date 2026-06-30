@@ -13,6 +13,7 @@ from config import (
 )
 from data.market_feed import MarketFeed
 from data.indicators import compute_indicators, compute_multi_timeframe, build_signal_scorecard
+from data.memory_graph import MemoryGraph, _rsi_band
 from ai.prompt_builder import build_trading_prompt
 from ai.claude_engine import analyze_market
 from trading.portfolio import Portfolio
@@ -32,6 +33,7 @@ class TradingEngine:
         self.on_update = on_update
 
         self.live_executor: Optional[BinanceLiveExecutor] = None
+        self.memory_graph = MemoryGraph()
         self.running = False
         self.last_decision: dict = {}
         self.last_market_data: dict = {}
@@ -41,10 +43,12 @@ class TradingEngine:
         self.cycle_count = 0
         self.errors: list = []
         self._task: Optional[asyncio.Task] = None
+        self._last_buy_decision_id: Optional[str] = None
 
     async def start(self):
         logger.info(f"Initializing market feeds for {self.symbol}...")
         await self.feed.initialize()
+        self.memory_graph.connect()
 
         if self.mode == "live":
             if not BINANCE_API_KEY:
@@ -67,6 +71,7 @@ class TradingEngine:
         await self.feed.close()
         if self.live_executor:
             await self.live_executor.close()
+        self.memory_graph.close()
         logger.info("Trading engine stopped")
 
     async def _loop(self):
@@ -133,8 +138,23 @@ class TradingEngine:
                 pnl = executed_trade.get("pnl", 0)
                 self.risk.record_trade_outcome(pnl)
                 self.portfolio.resolve_last_decision(pnl)
+                if self._last_buy_decision_id:
+                    self.memory_graph.resolve_outcome(self._last_buy_decision_id, pnl, current_price)
+                    self._last_buy_decision_id = None
         else:
-            # 5. Build prompt with all intelligence layers
+            # 5. Build memory context from Neo4j graph
+            mtf_alignment = mtf.get("alignment", {}) if mtf else {}
+            confluence = mtf_alignment.get("confluence", "unknown")
+            action_hint = "BUY" if portfolio_state.get("holdings", 0) == 0 else "SELL"
+            memory_context = self.memory_graph.build_memory_context(
+                regime=indicators.get("regime", "unknown"),
+                confluence=confluence,
+                rsi_band=_rsi_band(indicators.get("rsi_14")),
+                scorecard_bias=scorecard.get("overall_bias", "neutral"),
+                action_hint=action_hint,
+            )
+
+            # 6. Build prompt with all intelligence layers
             prompt = build_trading_prompt(
                 symbol=self.symbol,
                 tickers=tickers,
@@ -147,24 +167,42 @@ class TradingEngine:
                 fear_greed=market_data.get("fear_greed"),
                 funding_rate=market_data.get("funding_rate"),
                 scorecard=scorecard,
+                memory_context=memory_context,
             )
 
-            # 6. Call Claude (thread pool — non-blocking)
+            # 7. Call Claude (thread pool — non-blocking)
             loop = asyncio.get_event_loop()
             decision = await loop.run_in_executor(None, analyze_market, prompt)
             self.last_decision = decision
 
-            # 7. Record decision in memory
+            # 8. Save decision to Neo4j memory graph
+            decision_id = self.memory_graph.save_decision(
+                decision=decision,
+                indicators=indicators,
+                mtf_alignment=mtf_alignment,
+                fear_greed=market_data.get("fear_greed"),
+                funding_rate=market_data.get("funding_rate"),
+                scorecard=scorecard,
+                current_price=current_price,
+                mode=self.mode,
+            )
+
+            # 9. Record decision in session memory
             self.portfolio.record_decision(decision, current_price)
 
-            # 8. Execute if action taken
+            # 10. Execute if action taken
             if decision["action"] in ("BUY", "SELL"):
                 executed_trade = await self._execute_trade(decision, current_price)
                 if executed_trade:
                     pnl = executed_trade.get("pnl", 0)
                     self.risk.record_trade_outcome(pnl)
-                    if decision["action"] == "SELL":
+                    if decision["action"] == "BUY":
+                        self._last_buy_decision_id = decision_id
+                    elif decision["action"] == "SELL":
                         self.portfolio.resolve_last_decision(pnl)
+                        if self._last_buy_decision_id:
+                            self.memory_graph.resolve_outcome(self._last_buy_decision_id, pnl, current_price)
+                            self._last_buy_decision_id = None
 
         # 9. Broadcast full state
         state = self.get_full_state(current_price, indicators, mtf, scorecard, executed_trade)
@@ -298,6 +336,7 @@ class TradingEngine:
             "risk": self.risk.get_status(),
             "risk_halted": self.risk.halt,
             "halt_reason": self.risk.halt_reason,
+            "memory_summary": self.memory_graph.get_memory_summary(),
             "errors": self.errors[-5:],
         }
 

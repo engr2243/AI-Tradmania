@@ -9,6 +9,7 @@ import Indicators from './components/Indicators';
 import BotControls from './components/BotControls';
 import Scorecard from './components/Scorecard';
 import SignalPerformance from './components/SignalPerformance';
+import MemoryPanel from './components/MemoryPanel';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const WS_URL = API_BASE.replace('http', 'ws') + '/ws';
@@ -130,7 +131,10 @@ export default function App() {
           />
         </div>
 
-        {/* Row 5: Trade History */}
+        {/* Row 5: Memory Graph */}
+        <MemoryPanel />
+
+        {/* Row 6: Trade History */}
         <TradeHistory trades={state?.recent_trades || []} />
 
         <footer className="text-center text-xs text-slate-700 pb-4">

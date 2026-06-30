@@ -28,6 +28,7 @@ def build_trading_prompt(
     fear_greed: Optional[dict],
     funding_rate: Optional[dict],
     scorecard: dict,
+    memory_context: str = "",
     timeframe: str = "5m",
 ) -> str:
 
@@ -142,7 +143,16 @@ def build_trading_prompt(
     # ── Section 8: Decision memory ────────────────────────────────────────────
     memory_text = _format_decision_memory(decision_memory)
 
-    # ── Section 9: Regime-based strategy hint ─────────────────────────────────
+    # ── Section 9: Long-term graph memory ────────────────────────────────────
+    memory_section = ""
+    if memory_context and memory_context.strip():
+        memory_section = f"""
+────────────────────────────────────────────────────────
+LONG-TERM MEMORY INSIGHTS  (Neo4j learned patterns)
+────────────────────────────────────────────────────────
+{memory_context}"""
+
+    # ── Section 10: Regime-based strategy hint ────────────────────────────────
     strategy_hint = _regime_strategy_hint(regime, adx, confluence)
 
     # ── Section 10: Market regime warning ─────────────────────────────────────
@@ -219,7 +229,7 @@ PORTFOLIO STATE
 YOUR DECISION HISTORY (last {len(decision_memory)} decisions)
 ────────────────────────────────────────────────────────
 {memory_text}
-
+{memory_section}
 ════════════════════════════════════════════════════════
 STRATEGY GUIDANCE FOR CURRENT REGIME
 ════════════════════════════════════════════════════════

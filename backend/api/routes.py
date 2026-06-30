@@ -136,3 +136,18 @@ async def get_decisions():
         "last_decision": engine.last_decision,
         "memory": engine.portfolio.decision_memory,
     }
+
+
+@router.get("/memory")
+async def get_memory():
+    if not engine:
+        raise HTTPException(status_code=503, detail="Engine not initialized")
+    mg = engine.memory_graph
+    return {
+        "summary": mg.get_memory_summary(),
+        "regime_performance": mg.get_regime_performance(),
+        "best_signal_combos": mg.get_best_signal_combos(),
+        "anti_patterns": mg.get_anti_patterns(),
+        "time_performance": mg.get_time_performance(),
+        "confluence_performance": mg.get_confluence_performance(),
+    }
